@@ -1,0 +1,31 @@
+{
+  "folders": [
+    {
+      "name": "Backend Core (Node.js)",
+      "path": "services/backend-core"
+    },
+    {
+      "name": "Telemetry Engine (Python)",
+      "path": "services/telemetry-engine"
+    },
+    {
+      "name": "Frontend (React)",
+      "path": "apps/frontend"
+    }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "python.defaultInterpreterPath": "${workspaceFolder:Telemetry Engine (Python)}/.venv/bin/python",
+    "python.analysis.typeCheckingMode": "basic",
+    "typescript.tsdk": "services/backend-core/node_modules/typescript/lib"
+  },
+  "extensions": {
+    "recommendations": [
+      "dbaeumer.vscode-eslint",
+      "esbenp.prettier-vscode",
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "prisma.prisma"
+    ]
+  }
+}

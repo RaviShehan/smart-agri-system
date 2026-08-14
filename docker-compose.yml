@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: agri_postgres
+    environment:
+      POSTGRES_USER: agri_user
+      POSTGRES_PASSWORD: agri_password
+      POSTGRES_DB: smart_agri_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

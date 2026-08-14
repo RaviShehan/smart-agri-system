@@ -1,0 +1,67 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum PumpStatus {
+  OFF
+  ON
+  OVERRIDE_ON
+  OVERRIDE_OFF
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model CropZone {
+  id                 String   @id @default(uuid())
+  name               String
+  cropType           String
+  targetMoistureMin  Float
+  targetMoistureMax  Float
+  targetTemperature  Float
+  devices            Device[]
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Device {
+  id            String         @id @default(uuid())
+  name          String
+  zoneId        String
+  zone          CropZone       @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  pumpStatus    PumpStatus     @default(OFF)
+  telemetryLogs TelemetryLog[]
+  alerts        SystemAlert[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model TelemetryLog {
+  id           String   @id @default(uuid())
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  soilMoisture Float
+  temperature  Float
+  humidity     Float
+  timestamp    DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+}
+
+model SystemAlert {
+  id        String        @id @default(uuid())
+  deviceId  String
+  device    Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  message   String
+  severity  AlertSeverity @default(INFO)
+  resolved  Boolean       @default(false)
+  createdAt DateTime      @default(now())
+}
