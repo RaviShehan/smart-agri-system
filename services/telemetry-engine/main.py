@@ -1,81 +1,38 @@
-﻿import os
-import time
+﻿from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+import json
 import random
 from datetime import datetime
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, inspect, text
 
-load_dotenv()
+app = FastAPI()
 
-DB_URL = os.getenv("DATABASE_URL")
-engine = create_engine(DB_URL)
+# Enable CORS for Frontend communication
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def get_device_and_telemetry_tables():
-    """Inspects database tables to find exact table & column names without throwing errors."""
-    inspector = inspect(engine)
-    tables = inspector.get_table_names()
-    
-    device_table = None
-    telemetry_table = None
-    
-    for t in tables:
-        if t.lower() in ['device', 'devices']:
-            device_table = t
-        elif t.lower() in ['telemetrylog', 'telemetry_log', 'telemetrydata', 'telemetry_data', 'telemetry']:
-            telemetry_table = t
-            
-    return device_table, telemetry_table
+async def telemetry_stream():
+    """Generates real-time sensor updates every 2 seconds."""
+    while True:
+        data = {
+            "timestamp": datetime.now().strftime("%I:%M:%S %p"),
+            "moisture": random.randint(35, 70),
+            "temperature": random.randint(22, 34)
+        }
+        # SSE standard format: 'data: <json_string>\n\n'
+        yield f"data: {json.dumps(data)}\n\n"
+        await asyncio.sleep(2)
 
-def get_first_device_id(device_table):
-    with engine.connect() as conn:
-        result = conn.execute(text(f'SELECT id FROM "{device_table}" LIMIT 1;'))
-        row = result.fetchone()
-        return row[0] if row else None
-
-def generate_and_insert_telemetry(device_id, telemetry_table):
-    soil_moisture = round(random.uniform(30.0, 60.0), 2)
-    temperature = round(random.uniform(22.0, 32.0), 2)
-    humidity = round(random.uniform(40.0, 80.0), 2)
-    
-    # Query matching Prisma schema: TelemetryLog with soilMoisture, temperature, humidity
-    query = text(f"""
-        INSERT INTO "{telemetry_table}" (id, "deviceId", "soilMoisture", temperature, humidity, timestamp)
-        VALUES (gen_random_uuid(), :device_id, :soil_moisture, :temperature, :humidity, NOW());
-    """)
-    
-    with engine.begin() as conn:
-        conn.execute(query, {
-            "device_id": device_id,
-            "soil_moisture": soil_moisture,
-            "temperature": temperature,
-            "humidity": humidity
-        })
-    
-    time_str = datetime.now().strftime("%H:%M:%S")
-    print(f"[{time_str}] 📡 Telemetry Sent -> Device: {device_id[:8]}... | Soil Moisture: {soil_moisture}% | Temp: {temperature}°C | Humidity: {humidity}%")
+@app.get("/api/telemetry/stream")
+async def stream_telemetry():
+    return StreamingResponse(telemetry_stream(), media_type="text/event-stream")
 
 if __name__ == "__main__":
-    print("🌱 Starting IoT Telemetry Engine...")
-    
-    device_table, telemetry_table = get_device_and_telemetry_tables()
-    
-    if not device_table or not telemetry_table:
-        print("❌ Could not locate device or telemetry tables in PostgreSQL. Please verify migration.")
-        exit(1)
-        
-    print(f"🔍 Discovered Tables -> Device Table: '{device_table}' | Telemetry Table: '{telemetry_table}'")
-    
-    device_id = get_first_device_id(device_table)
-    if not device_id:
-        print("❌ No device records found in database.")
-        exit(1)
-        
-    print(f"✅ Bound to Device ID: {device_id}")
-    print("🔄 Streaming sensor telemetry every 5 seconds (Press Ctrl+C to stop)...\n")
-    
-    try:
-        while True:
-            generate_and_insert_telemetry(device_id, telemetry_table)
-            time.sleep(5)
-    except KeyboardInterrupt:
-        print("\n🛑 Telemetry stream stopped.")
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

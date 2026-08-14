@@ -10,7 +10,7 @@
     },
     {
       "name": "Frontend (React)",
-      "path": "apps/frontend"
+      "path": "services/frontend"
     }
   ],
   "settings": {

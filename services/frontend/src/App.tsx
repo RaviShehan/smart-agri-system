@@ -1,166 +1,173 @@
-import { useEffect, useState } from 'react';
-import axios from 'axios';
-import { Sprout, Droplets, Thermometer, RefreshCw, Cpu, Activity } from 'lucide-react';
-
-interface Device {
-  id: string;
-  name: string;
-  type: string;
-  status: string;
-}
+﻿import React, { useEffect, useState } from 'react';
+import { TelemetryChart } from './components/TelemetryChart';
 
 interface CropZone {
   id: string;
   name: string;
   cropType: string;
-  devices: Device[];
 }
 
-interface Telemetry {
+interface TelemetryPoint {
+  timestamp: string;
   moisture: number;
   temperature: number;
-  timestamp: string;
 }
 
 export default function App() {
-  const [cropZones, setCropZones] = useState<CropZone[]>([]);
-  const [telemetryMap, setTelemetryMap] = useState<Record<string, Telemetry>>({});
+  const [zones, setZones] = useState<CropZone[]>([]);
   const [loading, setLoading] = useState(true);
+  const [telemetryHistory, setTelemetryHistory] = useState<TelemetryPoint[]>([]);
+  const [pumpActive, setPumpActive] = useState(false);
+  const [pumpMessage, setPumpMessage] = useState('');
 
-  const fetchData = async () => {
-    try {
-      // 1. Fetch Crop Zones and their attached devices
-      const zoneRes = await axios.get('http://localhost:4000/api/crop-zones');
-      const zones: CropZone[] = zoneRes.data;
-      setCropZones(zones);
+  const CRITICAL_MOISTURE_THRESHOLD = 45;
+  const currentMoisture = telemetryHistory.length > 0 ? telemetryHistory[telemetryHistory.length - 1].moisture : null;
+  const currentTemp = telemetryHistory.length > 0 ? telemetryHistory[telemetryHistory.length - 1].temperature : null;
+  const isLowMoisture = currentMoisture !== null && currentMoisture < CRITICAL_MOISTURE_THRESHOLD;
 
-      // 2. Fetch Latest Telemetry for each device
-      const telemetryData: Record<string, Telemetry> = {};
-      for (const zone of zones) {
-        for (const device of zone.devices) {
-          try {
-            const telemRes = await axios.get(`http://localhost:4000/api/telemetry/${device.id}/latest`);
-            if (telemRes.data) {
-              telemetryData[device.id] = telemRes.data;
-            }
-          } catch (err) {
-            console.error(`Telemetry missing for device ${device.id}`);
-          }
+  // Fetch Crop Zones
+  useEffect(() => {
+    fetch('http://localhost:4000/api/crop-zones')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          const uniqueZones = data.filter(
+            (zone, index, self) => index === self.findIndex((z) => z.name === zone.name)
+          );
+          setZones(uniqueZones);
         }
-      }
-      setTelemetryMap(telemetryData);
-    } catch (error) {
-      console.error('Error connecting to backend API', error);
-    } finally {
-      setLoading(false);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  // Live Chart Data Updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      
+      // If pump is active, simulate increasing moisture levels
+      const newMoisture = pumpActive 
+        ? Math.floor(Math.random() * (75 - 60 + 1)) + 60 
+        : Math.floor(Math.random() * (60 - 35 + 1)) + 35;
+
+      const newTemp = Math.floor(Math.random() * (32 - 22 + 1)) + 22;
+
+      setTelemetryHistory((prev) => [
+        ...prev.slice(-14),
+        { timestamp: now, moisture: newMoisture, temperature: newTemp },
+      ]);
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [pumpActive]);
+
+  // Handle Pump Action
+  const handleTogglePump = () => {
+    if (!pumpActive) {
+      setPumpActive(true);
+      setPumpMessage('Water pump activated! Injecting moisture...');
+      setTimeout(() => setPumpMessage(''), 5000);
+    } else {
+      setPumpActive(false);
+      setPumpMessage('Water pump deactivated.');
+      setTimeout(() => setPumpMessage(''), 4000);
     }
   };
 
-  useEffect(() => {
-    fetchData();
-    // Auto refresh dashboard telemetry every 5 seconds
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
-    <div className="max-w-7xl mx-auto px-6 py-10">
-      {/* Header */}
-      <header className="flex items-center justify-between pb-8 mb-8 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 text-emerald-400">
-            <Sprout className="w-8 h-8" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-wide">Smart Agri Telemetry Dashboard</h1>
-            <p className="text-slate-400 text-sm">Real-time IoT Sensor Monitoring Platform</p>
-          </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-8 font-sans">
+      <header className="max-w-6xl mx-auto mb-8 flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-emerald-400 flex items-center gap-2">
+            Smart Agri Telemetry Dashboard
+          </h1>
+          <p className="text-slate-400 text-sm">Real-time IoT Sensor Monitoring Platform</p>
         </div>
-
-        <button
-          onClick={fetchData}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg border border-slate-700 transition"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Sync Data
-        </button>
+        
+        {/* Current Metrics Summary */}
+        {currentMoisture !== null && (
+          <div className="flex gap-4 bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg text-sm">
+            <div>
+              <span className="text-slate-400">Moisture: </span>
+              <span className={currentMoisture < CRITICAL_MOISTURE_THRESHOLD ? "text-red-400 font-bold" : "text-blue-400 font-bold"}>
+                {currentMoisture}%
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400">Temp: </span>
+              <span className="text-orange-400 font-bold">{currentTemp}°C</span>
+            </div>
+          </div>
+        )}
       </header>
 
-      {/* Main Content Grid */}
-      {cropZones.length === 0 ? (
-        <div className="text-center py-20 bg-slate-800/50 rounded-2xl border border-slate-800">
-          <Activity className="w-12 h-12 mx-auto text-slate-600 mb-4 animate-pulse" />
-          <p className="text-slate-400">Fetching crop zones from backend service...</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {cropZones.map((zone) => (
-            <div key={zone.id} className="bg-slate-800/40 rounded-2xl border border-slate-800 p-6 backdrop-blur">
-              {/* Zone Info */}
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-xl font-semibold text-white">{zone.name}</h2>
-                  <span className="inline-block mt-1 px-3 py-1 bg-emerald-500/10 text-emerald-400 text-xs font-semibold rounded-full border border-emerald-500/20">
-                    Crop: {zone.cropType}
-                  </span>
-                </div>
-              </div>
-
-              {/* Connected Devices */}
-              <div className="space-y-4">
-                {zone.devices.map((device) => {
-                  const telem = telemetryMap[device.id];
-                  const isMoistureLow = telem && telem.moisture < 40;
-
-                  return (
-                    <div key={device.id} className="bg-slate-900/60 rounded-xl p-5 border border-slate-800/80">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2 text-slate-300 font-medium">
-                          <Cpu className="w-4 h-4 text-emerald-400" />
-                          <span>{device.name}</span>
-                        </div>
-                        <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-400/10 px-2.5 py-1 rounded-md">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                          Online
-                        </span>
-                      </div>
-
-                      {/* Sensor Metrics */}
-                      {telem ? (
-                        <div className="grid grid-cols-2 gap-4">
-                          {/* Soil Moisture */}
-                          <div className={`p-4 rounded-lg border ${isMoistureLow ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-slate-800/60 border-slate-700/50 text-sky-400'}`}>
-                            <div className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-1">
-                              <Droplets className="w-4 h-4 text-sky-400" />
-                              Soil Moisture
-                            </div>
-                            <div className="text-2xl font-bold text-white">{telem.moisture}%</div>
-                            <span className="text-[11px] text-slate-400 mt-1 block">
-                              {isMoistureLow ? '⚠️ Low Moisture Alert' : '✅ Optimal Range'}
-                            </span>
-                          </div>
-
-                          {/* Temperature */}
-                          <div className="p-4 rounded-lg bg-slate-800/60 border border-slate-700/50 text-rose-400">
-                            <div className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-1">
-                              <Thermometer className="w-4 h-4 text-rose-400" />
-                              Ambient Temp
-                            </div>
-                            <div className="text-2xl font-bold text-white">{telem.temperature} °C</div>
-                            <span className="text-[11px] text-slate-400 mt-1 block">Live Stream</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-500 py-2">Waiting for telemetry stream...</p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+      <main className="max-w-6xl mx-auto space-y-8">
+        {/* Dynamic Alert Banner */}
+        {isLowMoisture && !pumpActive && (
+          <div className="bg-red-950/80 border border-red-800 text-red-200 p-5 rounded-xl shadow-lg flex justify-between items-center animate-pulse">
+            <div>
+              <h3 className="text-lg font-bold text-red-400">CRITICAL: Low Soil Moisture Detected!</h3>
+              <p className="text-sm text-red-300/80">
+                Current moisture is <span className="font-bold">{currentMoisture}%</span> (Below critical threshold of {CRITICAL_MOISTURE_THRESHOLD}%). Immediate action required.
+              </p>
             </div>
-          ))}
-        </div>
-      )}
+            <button
+              onClick={handleTogglePump}
+              className="bg-red-600 hover:bg-red-500 text-white font-bold px-5 py-2.5 rounded-lg shadow transition duration-200"
+            >
+              Start Irrigation Pump
+            </button>
+          </div>
+        )}
+
+        {/* Pump Active Status Card */}
+        {pumpActive && (
+          <div className="bg-emerald-950/80 border border-emerald-800 text-emerald-200 p-5 rounded-xl shadow-lg flex justify-between items-center">
+            <div>
+              <h3 className="text-lg font-bold text-emerald-400">Irrigation System Active</h3>
+              <p className="text-sm text-emerald-300/80">
+                Pump is running and restoring optimal soil hydration levels.
+              </p>
+            </div>
+            <button
+              onClick={handleTogglePump}
+              className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-5 py-2.5 rounded-lg shadow transition duration-200"
+            >
+              Stop Pump
+            </button>
+          </div>
+        )}
+
+        {/* Status Toast */}
+        {pumpMessage && (
+          <div className="bg-blue-900/90 border border-blue-700 text-blue-200 px-4 py-2 rounded-lg text-sm transition">
+            {pumpMessage}
+          </div>
+        )}
+
+        {/* Telemetry Chart Section */}
+        <TelemetryChart data={telemetryHistory} />
+
+        {/* Crop Zones List */}
+        <section className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <h2 className="text-xl font-semibold mb-4 text-slate-200">Active Crop Zones</h2>
+          {loading ? (
+            <p className="text-slate-400">Fetching crop zones from backend service...</p>
+          ) : zones.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {zones.map((zone) => (
+                <div key={zone.id} className="bg-slate-800/60 p-4 rounded-lg border border-slate-700/50">
+                  <h3 className="font-bold text-emerald-300">{zone.name}</h3>
+                  <p className="text-xs text-slate-400">Crop: {zone.cropType}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-slate-400">No active crop zones found.</p>
+          )}
+        </section>
+      </main>
     </div>
   );
 }
