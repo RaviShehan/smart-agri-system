@@ -6,7 +6,6 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Clear existing zones to avoid unique constraint conflicts
   await prisma.telemetry.deleteMany({});
   await prisma.cropZone.deleteMany({});
 
@@ -20,7 +19,7 @@ async function main() {
     const created = await prisma.cropZone.create({
       data: zone,
     });
-    console.log(\✅ Seeded CropZone: \ (\) with Device ID: \\);
+    console.log(`✅ Seeded CropZone: ${created.name} (${created.cropType}) with Device ID: ${created.deviceId}`);
   }
 }
 
@@ -30,5 +29,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.();
+    await prisma.$disconnect();
   });

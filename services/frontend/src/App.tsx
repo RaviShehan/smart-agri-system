@@ -1,10 +1,11 @@
-﻿import React, { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { TelemetryChart } from './components/TelemetryChart';
 
 interface CropZone {
   id: string;
   name: string;
   cropType: string;
+  moistureThreshold: number;
 }
 
 interface TelemetryPoint {
@@ -13,187 +14,162 @@ interface TelemetryPoint {
   temperature: number;
 }
 
+interface AnalyticsPoint {
+  date: string;
+  avgMoisture: number;
+  avgTemperature: number;
+  totalReadings: number;
+}
+
 export default function App() {
   const [zones, setZones] = useState<CropZone[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedZoneId, setSelectedZoneId] = useState<string>('all');
   const [telemetryHistory, setTelemetryHistory] = useState<TelemetryPoint[]>([]);
-  const [pumpActive, setPumpActive] = useState(false);
-  const [pumpMessage, setPumpMessage] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsPoint[]>([]);
 
-  const CRITICAL_MOISTURE_THRESHOLD = 45;
-  const currentMoisture = telemetryHistory.length > 0 ? telemetryHistory[telemetryHistory.length - 1].moisture : null;
-  const currentTemp = telemetryHistory.length > 0 ? telemetryHistory[telemetryHistory.length - 1].temperature : null;
-  const isLowMoisture = currentMoisture !== null && currentMoisture < CRITICAL_MOISTURE_THRESHOLD;
-
-  // 1. Fetch Initial Data (Crop Zones, Pump Status, & Historical Telemetry)
   useEffect(() => {
-    // Fetch Crop Zones
     fetch('http://localhost:4000/api/crop-zones')
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          const uniqueZones = data.filter(
-            (zone, index, self) => index === self.findIndex((z) => z.name === zone.name)
-          );
-          setZones(uniqueZones);
-        }
-        setLoading(false);
+      .then((res) => {
+        if (!res.ok) throw new Error(`Crop zones request failed: ${res.status}`);
+        return res.json();
       })
-      .catch(() => setLoading(false));
-
-    // Fetch Pump Status
-    fetch('http://localhost:4000/api/pump/status')
-      .then((res) => res.json())
-      .then((data) => setPumpActive(data.active))
-      .catch((err) => console.error('Error fetching pump status:', err));
-
-    // Fetch Persisted Telemetry History from PostgreSQL
-    fetch('http://localhost:4000/api/telemetry/history')
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          const formattedHistory: TelemetryPoint[] = data.map((item: any) => ({
-            timestamp: new Date(item.recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            moisture: item.moisture,
-            temperature: item.temperature
-          }));
-          setTelemetryHistory(formattedHistory);
-        }
-      })
-      .catch((err) => console.error('Error fetching historical telemetry:', err));
+      .then((data) => setZones(Array.isArray(data) ? data : []))
+      .catch((err) => {
+        console.error(err);
+        setZones([]);
+      });
   }, []);
 
-  // 2. Connect Live SSE Stream for Real-Time Updates
   useEffect(() => {
-    const eventSource = new EventSource('http://localhost:8000/api/telemetry/stream');
+    const histUrl = selectedZoneId === 'all'
+      ? 'http://localhost:4000/api/telemetry/history'
+      : `http://localhost:4000/api/telemetry/history?zoneId=${selectedZoneId}`;
 
+    fetch(histUrl)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Telemetry history request failed: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setTelemetryHistory(data.map((item: any) => ({
+            timestamp: new Date(item.recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            moisture: item.moisture,
+            temperature: item.temperature
+          })));
+        } else {
+          setTelemetryHistory([]);
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        setTelemetryHistory([]);
+      });
+
+    const analyticsUrl = selectedZoneId === 'all'
+      ? 'http://localhost:4000/api/telemetry/analytics'
+      : `http://localhost:4000/api/telemetry/analytics?zoneId=${selectedZoneId}`;
+
+    fetch(analyticsUrl)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Analytics request failed: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => setAnalyticsData(Array.isArray(data) ? data : []))
+      .catch((err) => {
+        console.error(err);
+        setAnalyticsData([]);
+      });
+
+    const streamUrl = selectedZoneId === 'all'
+      ? 'http://localhost:8000/api/telemetry/stream'
+      : `http://localhost:8000/api/telemetry/stream?zoneId=${selectedZoneId}`;
+    const eventSource = new EventSource(streamUrl);
     eventSource.onmessage = (event) => {
-      const newPoint: TelemetryPoint = JSON.parse(event.data);
-      setTelemetryHistory((prev) => [...prev.slice(-14), newPoint]);
+      try {
+        const point = JSON.parse(event.data);
+        setTelemetryHistory((prev) => [...prev.slice(-14), point]);
+      } catch (err) {
+        console.error('SSE payload parse error', err);
+      }
+    };
+    eventSource.onerror = () => {
+      eventSource.close();
     };
 
     return () => eventSource.close();
-  }, []);
+  }, [selectedZoneId]);
 
-  // Relay Control API Command
-  const handleTogglePump = async (targetState: boolean) => {
-    setIsSubmitting(true);
-    try {
-      const res = await fetch('http://localhost:4000/api/pump/toggle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active: targetState }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setPumpActive(data.pumpStatus.active);
-        setPumpMessage(
-          targetState
-            ? 'HTTP POST 200: Relay signal sent! Water pump activated.'
-            : 'HTTP POST 200: Relay signal sent! Water pump deactivated.'
-        );
-        setTimeout(() => setPumpMessage(''), 4000);
-      }
-    } catch (err) {
-      console.error('Failed to command pump relay:', err);
-      setPumpMessage('Error sending relay signal to Backend Core.');
-    } finally {
-      setIsSubmitting(false);
-    }
+  const handleExportCSV = () => {
+    const url = selectedZoneId === 'all'
+      ? 'http://localhost:4000/api/telemetry/export-csv'
+      : `http://localhost:4000/api/telemetry/export-csv?zoneId=${selectedZoneId}`;
+    window.open(url, '_blank');
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-8 font-sans">
       <header className="max-w-6xl mx-auto mb-8 flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-emerald-400 flex items-center gap-2">
-            Smart Agri Telemetry Dashboard
-          </h1>
-          <p className="text-slate-400 text-sm">Real-time IoT Monitoring with PostgreSQL Persistence</p>
+          <h1 className="text-3xl font-bold text-emerald-400">Smart Agri Telemetry Dashboard</h1>
+          <p className="text-slate-400 text-sm">Real-Time Streams & Historical Analytics</p>
         </div>
-        
-        {currentMoisture !== null && (
-          <div className="flex gap-4 bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg text-sm">
-            <div>
-              <span className="text-slate-400">Moisture: </span>
-              <span className={currentMoisture < CRITICAL_MOISTURE_THRESHOLD ? "text-red-400 font-bold" : "text-blue-400 font-bold"}>
-                {currentMoisture}%
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400">Temp: </span>
-              <span className="text-orange-400 font-bold">{currentTemp}°C</span>
-            </div>
-          </div>
-        )}
+
+        <div className="flex gap-4 items-center">
+          <select
+            value={selectedZoneId}
+            onChange={(e) => setSelectedZoneId(e.target.value)}
+            className="bg-slate-900 border border-slate-700 text-emerald-400 px-3 py-2 rounded-lg text-sm focus:outline-none"
+          >
+            <option value="all">All Crop Zones</option>
+            {Array.isArray(zones) && zones.map((z) => (
+              <option key={z.id} value={z.id}>{z.name}</option>
+            ))}
+          </select>
+
+          <button
+            onClick={handleExportCSV}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+          >
+            📥 Export CSV Report
+          </button>
+        </div>
       </header>
 
       <main className="max-w-6xl mx-auto space-y-8">
-        {/* Dynamic Alert Banner */}
-        {isLowMoisture && !pumpActive && (
-          <div className="bg-red-950/80 border border-red-800 text-red-200 p-5 rounded-xl shadow-lg flex justify-between items-center animate-pulse">
-            <div>
-              <h3 className="text-lg font-bold text-red-400">CRITICAL: Low Soil Moisture Detected!</h3>
-              <p className="text-sm text-red-300/80">
-                Current moisture is <span className="font-bold">{currentMoisture}%</span> (Threshold: {CRITICAL_MOISTURE_THRESHOLD}%).
-              </p>
-            </div>
-            <button
-              disabled={isSubmitting}
-              onClick={() => handleTogglePump(true)}
-              className="bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold px-5 py-2.5 rounded-lg shadow transition duration-200"
-            >
-              {isSubmitting ? 'Sending Request...' : 'Start Irrigation Pump'}
-            </button>
-          </div>
-        )}
-
-        {/* Pump Active Card */}
-        {pumpActive && (
-          <div className="bg-emerald-950/80 border border-emerald-800 text-emerald-200 p-5 rounded-xl shadow-lg flex justify-between items-center">
-            <div>
-              <h3 className="text-lg font-bold text-emerald-400">Irrigation System Active</h3>
-              <p className="text-sm text-emerald-300/80">Hardware relay state: ON. Hydrating field...</p>
-            </div>
-            <button
-              disabled={isSubmitting}
-              onClick={() => handleTogglePump(false)}
-              className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold px-5 py-2.5 rounded-lg shadow transition duration-200"
-            >
-              {isSubmitting ? 'Sending Request...' : 'Stop Pump'}
-            </button>
-          </div>
-        )}
-
-        {/* Status Toast */}
-        {pumpMessage && (
-          <div className="bg-blue-900/90 border border-blue-700 text-blue-200 px-4 py-2 rounded-lg text-sm">
-            {pumpMessage}
-          </div>
-        )}
-
-        {/* Telemetry Chart */}
         <TelemetryChart data={telemetryHistory} />
 
-        {/* Crop Zones List */}
+        {/* Analytics Table */}
         <section className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <h2 className="text-xl font-semibold mb-4 text-slate-200">Active Crop Zones</h2>
-          {loading ? (
-            <p className="text-slate-400">Loading crop zones...</p>
-          ) : zones.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {zones.map((zone) => (
-                <div key={zone.id} className="bg-slate-800/60 p-4 rounded-lg border border-slate-700/50">
-                  <h3 className="font-bold text-emerald-300">{zone.name}</h3>
-                  <p className="text-xs text-slate-400">Crop: {zone.cropType}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-slate-400">No active crop zones found.</p>
-          )}
+          <h2 className="text-xl font-semibold mb-4 text-slate-200">Daily Historical Aggregations</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-slate-300">
+              <thead className="text-xs uppercase bg-slate-800/80 text-emerald-400">
+                <tr>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Avg Soil Moisture</th>
+                  <th className="px-4 py-3">Avg Temperature</th>
+                  <th className="px-4 py-3">Total Telemetry Samples</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.isArray(analyticsData) && analyticsData.length > 0 ? analyticsData.map((row) => (
+                  <tr key={row.date} className="border-b border-slate-800 hover:bg-slate-800/40">
+                    <td className="px-4 py-3 font-semibold">{row.date}</td>
+                    <td className="px-4 py-3 text-blue-400 font-bold">{row.avgMoisture}%</td>
+                    <td className="px-4 py-3 text-orange-400 font-bold">{row.avgTemperature}°C</td>
+                    <td className="px-4 py-3 text-slate-400">{row.totalReadings} readings</td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
+                      Waiting for telemetry data...
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
       </main>
     </div>
