@@ -26,9 +26,8 @@ export default function App() {
   const currentTemp = telemetryHistory.length > 0 ? telemetryHistory[telemetryHistory.length - 1].temperature : null;
   const isLowMoisture = currentMoisture !== null && currentMoisture < CRITICAL_MOISTURE_THRESHOLD;
 
-  // 1. Fetch Initial Data (Crop Zones, Pump Status, & Historical Telemetry)
+  // Fetch initial pump status and crop zones
   useEffect(() => {
-    // Fetch Crop Zones
     fetch('http://localhost:4000/api/crop-zones')
       .then((res) => res.json())
       .then((data) => {
@@ -42,29 +41,13 @@ export default function App() {
       })
       .catch(() => setLoading(false));
 
-    // Fetch Pump Status
     fetch('http://localhost:4000/api/pump/status')
       .then((res) => res.json())
       .then((data) => setPumpActive(data.active))
       .catch((err) => console.error('Error fetching pump status:', err));
-
-    // Fetch Persisted Telemetry History from PostgreSQL
-    fetch('http://localhost:4000/api/telemetry/history')
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          const formattedHistory: TelemetryPoint[] = data.map((item: any) => ({
-            timestamp: new Date(item.recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            moisture: item.moisture,
-            temperature: item.temperature
-          }));
-          setTelemetryHistory(formattedHistory);
-        }
-      })
-      .catch((err) => console.error('Error fetching historical telemetry:', err));
   }, []);
 
-  // 2. Connect Live SSE Stream for Real-Time Updates
+  // SSE Stream
   useEffect(() => {
     const eventSource = new EventSource('http://localhost:8000/api/telemetry/stream');
 
@@ -76,7 +59,7 @@ export default function App() {
     return () => eventSource.close();
   }, []);
 
-  // Relay Control API Command
+  // Handle Relay Control POST Request
   const handleTogglePump = async (targetState: boolean) => {
     setIsSubmitting(true);
     try {
@@ -111,7 +94,7 @@ export default function App() {
           <h1 className="text-3xl font-bold text-emerald-400 flex items-center gap-2">
             Smart Agri Telemetry Dashboard
           </h1>
-          <p className="text-slate-400 text-sm">Real-time IoT Monitoring with PostgreSQL Persistence</p>
+          <p className="text-slate-400 text-sm">Real-time IoT Sensor Monitoring & Control Platform</p>
         </div>
         
         {currentMoisture !== null && (

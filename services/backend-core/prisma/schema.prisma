@@ -65,3 +65,9 @@ model SystemAlert {
   resolved  Boolean       @default(false)
   createdAt DateTime      @default(now())
 }
+model Telemetry {
+  id          String   @id @default(uuid())
+  moisture    Int
+  temperature Int
+  recordedAt  DateTime @default(now())
+}
