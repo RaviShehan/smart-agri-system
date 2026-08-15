@@ -8,12 +8,13 @@ datasource db {
 }
 
 model CropZone {
-  id          String      @id @default(uuid())
-  name        String
-  cropType    String
-  deviceId    String      @unique
-  createdAt   DateTime    @default(now())
-  telemetries Telemetry[]
+  id                String      @id @default(uuid())
+  name              String
+  cropType          String
+  deviceId          String      @unique
+  moistureThreshold Int         @default(45)
+  createdAt         DateTime    @default(now())
+  telemetries       Telemetry[]
 }
 
 model Telemetry {
