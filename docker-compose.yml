@@ -1,17 +1,50 @@
-version: "3.8"
+﻿version: '3.8'
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: agri_postgres
+    restart: always
     environment:
-      POSTGRES_USER: agri_user
-      POSTGRES_PASSWORD: agri_password
-      POSTGRES_DB: smart_agri_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: smartagridb
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  backend-core:
+    build: ./services/backend-core
+    container_name: agri_backend_core
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgrespassword@postgres:5432/smartagridb?schema=public"
+    depends_on:
+      - postgres
+
+  telemetry-engine:
+    build: ./services/telemetry-engine
+    container_name: agri_telemetry_engine
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      BACKEND_URL: "http://backend-core:4000"
+    depends_on:
+      - backend-core
+
+  frontend:
+    build: ./services/frontend
+    container_name: agri_frontend
+    restart: always
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend-core
+      - telemetry-engine
 
 volumes:
   pgdata:
