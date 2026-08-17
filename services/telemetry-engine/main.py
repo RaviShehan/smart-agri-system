@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI
+from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -6,6 +6,9 @@ import json
 import random
 from datetime import datetime
 import httpx
+import os
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:4000")
 
 app = FastAPI()
 
@@ -22,12 +25,13 @@ async def send_to_database(moisture: int, temperature: int):
   async with httpx.AsyncClient() as client:
       try:
           await client.post(
-              "http://localhost:4000/api/telemetry",
+              f"{BACKEND_URL}/api/telemetry",
               json={"moisture": moisture, "temperature": temperature},
               timeout=2.0
           )
       except Exception as e:
           print(f"Failed to persist reading: {e}")
+
 
 async def telemetry_stream():
     """Generates real-time sensor updates, saves to DB, and streams via SSE."""

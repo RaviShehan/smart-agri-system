@@ -8,21 +8,19 @@ datasource db {
 }
 
 model CropZone {
-  id                String      @id @default(uuid())
-  name              String
-  cropType          String
-  deviceId          String      @unique
-  moistureThreshold Int         @default(45)
-  createdAt         DateTime    @default(now())
-  telemetries       Telemetry[]
+  id               String      @id @default(uuid())
+  name             String
+  cropType         String
+  moistureThreshold Float
+  createdAt        DateTime    @default(now())
+  telemetries      Telemetry[]
 }
 
 model Telemetry {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
+  moisture    Float
+  temperature Float
+  recordedAt  DateTime  @default(now())
   cropZoneId  String?
-  moisture    Int
-  temperature Int
-  recordedAt  DateTime @default(now())
-
-  cropZone    CropZone? @relation(fields: [cropZoneId], references: [id], onDelete: Cascade)
+  cropZone    CropZone? @relation(fields: [cropZoneId], references: [id])
 }

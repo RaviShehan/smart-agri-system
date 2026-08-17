@@ -1,6 +1,7 @@
 ﻿import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
+import client from 'prom-client';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -8,10 +9,30 @@ const prisma = new PrismaClient();
 app.use(cors());
 app.use(express.json());
 
+// Enable default Node.js process metrics (CPU, Memory, Event Loop)
+client.collectDefaultMetrics({ register: client.register });
+
+// Custom Prometheus Metric for Telemetry Ingestion
+export const telemetryIngestCounter = new client.Counter({
+  name: 'agri_telemetry_ingested_total',
+  help: 'Total number of telemetry payloads ingested',
+  labelNames: ['zone_id']
+});
+
 let pumpStatus = {
   active: false,
   lastUpdated: new Date().toISOString()
 };
+
+// Prometheus Metrics Endpoint
+app.get('/metrics', async (req: Request, res: Response) => {
+  try {
+    res.setHeader('Content-Type', client.register.contentType);
+    res.send(await client.register.metrics());
+  } catch (error) {
+    res.status(500).send(error);
+  }
+});
 
 // GET Crop Zones
 app.get('/api/crop-zones', async (req: Request, res: Response) => {
@@ -48,7 +69,6 @@ app.get('/api/telemetry/analytics', async (req: Request, res: Response) => {
       orderBy: { recordedAt: 'asc' }
     });
 
-    // Group by Date (YYYY-MM-DD)
     const grouped: { [key: string]: { moistureSum: number; tempSum: number; count: number } } = {};
 
     rawData.forEach(item => {
@@ -90,7 +110,7 @@ app.get('/api/telemetry/export-csv', async (req: Request, res: Response) => {
     data.forEach(item => {
       const zoneName = item.cropZone ? item.cropZone.name : 'Unassigned';
       const timeStr = new Date(item.recordedAt).toISOString();
-      csvContent += `${item.id},${timeStr},${zoneName},${item.moisture},${item.temperature}\n`;
+      csvContent += item.id + ',' + timeStr + ',' + zoneName + ',' + item.moisture + ',' + item.temperature + '\n';
     });
 
     res.setHeader('Content-Type', 'text/csv');
@@ -112,6 +132,10 @@ app.post('/api/telemetry', async (req: Request, res: Response) => {
         cropZoneId: cropZoneId || null
       }
     });
+
+    // Increment Prometheus counter
+    telemetryIngestCounter.inc({ zone_id: cropZoneId || 'unassigned' });
+
     res.status(201).json({ success: true, reading });
   } catch (error) {
     res.status(500).json({ error: 'Failed to persist telemetry' });
@@ -140,4 +164,4 @@ app.post('/api/pump/toggle', (req: Request, res: Response) => {
   res.json({ success: true, pumpStatus });
 });
 
-app.listen(4000, () => console.log('✅ Backend Core with Analytics running on port 4000'));
+app.listen(4000, () => console.log('✅ Backend Core with Prometheus Metrics running on port 4000'));
